@@ -1,9 +1,5 @@
-// Project:         Advanced Locomotion System V4 on C++
-// Copyright:       Copyright (C) 2021 Doğa Can Yanıkoğlu
-// License:         MIT License (http://www.opensource.org/licenses/mit-license.php)
-// Source Code:     https://github.com/dyanikoglu/ALSV4_CPP
-// Original Author: Doğa Can Yanıkoğlu
-// Contributors:    Haziq Fadhil, Jens Bjarne Myhre
+// Copyright:       Copyright (C) 2022 Doğa Can Yanıkoğlu
+// Source Code:     https://github.com/dyanikoglu/ALS-Community
 
 
 #include "Character/Animation/ALSCharacterAnimInstance.h"
@@ -49,6 +45,10 @@ void UALSCharacterAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
 	Character = Cast<AALSBaseCharacter>(TryGetPawnOwner());
+	if (Character)
+	{
+		Character->OnJumpedDelegate.AddUniqueDynamic(this, &UALSCharacterAnimInstance::OnJumped);
+	}
 }
 
 void UALSCharacterAnimInstance::NativeBeginPlay()
@@ -66,26 +66,32 @@ void UALSCharacterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
 
-	if (!Character)
+	if (!Character || DeltaSeconds == 0.0f)
 	{
-		// Fix character looking right on editor
-		RotationMode = EALSRotationMode::VelocityDirection;
-
-		// Don't run in editor
-		return;
-	}
-
-	if (DeltaSeconds == 0.0f)
-	{
-		// Prevent update on the first frame (potential division by zero)
 		return;
 	}
 
 	// Update rest of character information. Others are reflected into anim bp when they're set inside character class
+	CharacterInformation.MovementInputAmount = Character->GetMovementInputAmount();
+	CharacterInformation.bHasMovementInput = Character->HasMovementInput();
+	CharacterInformation.bIsMoving = Character->IsMoving();
+	CharacterInformation.Acceleration = Character->GetAcceleration();
+	CharacterInformation.AimYawRate = Character->GetAimYawRate();
+	CharacterInformation.Speed = Character->GetSpeed();
 	CharacterInformation.Velocity = Character->GetCharacterMovement()->Velocity;
 	CharacterInformation.MovementInput = Character->GetMovementInput();
 	CharacterInformation.AimingRotation = Character->GetAimingRotation();
 	CharacterInformation.CharacterActorRotation = Character->GetActorRotation();
+	CharacterInformation.ViewMode = Character->GetViewMode();
+	CharacterInformation.PrevMovementState = Character->GetPrevMovementState();
+	LayerBlendingValues.OverlayOverrideState = Character->GetOverlayOverrideState();
+	MovementState = Character->GetMovementState();
+	MovementAction = Character->GetMovementAction();
+	Stance = Character->GetStance();
+	RotationMode = Character->GetRotationMode();
+	Gait = Character->GetGait();
+	OverlayState = Character->GetOverlayState();
+	GroundedEntryState = Character->GetGroundedEntryState();
 
 	UpdateAimingValues(DeltaSeconds);
 	UpdateLayerValues();
@@ -245,7 +251,7 @@ void UALSCharacterAnimInstance::UpdateAimingValues(float DeltaSeconds)
 	if (!RotationMode.VelocityDirection())
 	{
 		// Clamp the Aiming Pitch Angle to a range of 1 to 0 for use in the vertical aim sweeps.
-		AimingValues.AimSweepTime = FMath::GetMappedRangeValueClamped({-90.0f, 90.0f}, {1.0f, 0.0f},
+		AimingValues.AimSweepTime = FMath::GetMappedRangeValueClamped<float, float>({-90.0f, 90.0f}, {1.0f, 0.0f},
 		                                                              AimingValues.AimingAngle.Y);
 
 		// Use the Aiming Yaw Angle divided by the number of spine+pelvis bones to get the amount of spine rotation
@@ -260,7 +266,7 @@ void UALSCharacterAnimInstance::UpdateAimingValues(float DeltaSeconds)
 		// This value is used in the aim offset behavior to make the character look toward the Movement Input.
 		Delta = CharacterInformation.MovementInput.ToOrientationRotator() - CharacterInformation.CharacterActorRotation;
 		Delta.Normalize();
-		const float InterpTarget = FMath::GetMappedRangeValueClamped({-180.0f, 180.0f}, {0.0f, 1.0f}, Delta.Yaw);
+		const float InterpTarget = FMath::GetMappedRangeValueClamped<float, float>({-180.0f, 180.0f}, {0.0f, 1.0f}, Delta.Yaw);
 
 		AimingValues.InputYawOffsetTime = FMath::FInterpTo(AimingValues.InputYawOffsetTime, InterpTarget,
 		                                                   DeltaSeconds, Config.InputYawOffsetInterpSpeed);
@@ -269,11 +275,11 @@ void UALSCharacterAnimInstance::UpdateAimingValues(float DeltaSeconds)
 	// Separate the Aiming Yaw Angle into 3 separate Yaw Times. These 3 values are used in the Aim Offset behavior
 	// to improve the blending of the aim offset when rotating completely around the character.
 	// This allows you to keep the aiming responsive but still smoothly blend from left to right or right to left.
-	AimingValues.LeftYawTime = FMath::GetMappedRangeValueClamped({0.0f, 180.0f}, {0.5f, 0.0f},
+	AimingValues.LeftYawTime = FMath::GetMappedRangeValueClamped<float, float>({0.0f, 180.0f}, {0.5f, 0.0f},
 	                                                             FMath::Abs(SmoothedAimingAngle.X));
-	AimingValues.RightYawTime = FMath::GetMappedRangeValueClamped({0.0f, 180.0f}, {0.5f, 1.0f},
+	AimingValues.RightYawTime = FMath::GetMappedRangeValueClamped<float, float>({0.0f, 180.0f}, {0.5f, 1.0f},
 	                                                              FMath::Abs(SmoothedAimingAngle.X));
-	AimingValues.ForwardYawTime = FMath::GetMappedRangeValueClamped({-180.0f, 180.0f}, {0.0f, 1.0f},
+	AimingValues.ForwardYawTime = FMath::GetMappedRangeValueClamped<float, float>({-180.0f, 180.0f}, {0.0f, 1.0f},
 	                                                                SmoothedAimingAngle.X);
 }
 
@@ -503,7 +509,7 @@ void UALSCharacterAnimInstance::SetFootOffsets(float DeltaSeconds, FName EnableF
 		FVector ImpactNormal = HitResult.ImpactNormal;
 
 		// Step 1.1: Find the difference in location from the Impact point and the expected (flat) floor location.
-		// These values are offset by the nomrmal multiplied by the
+		// These values are offset by the normal multiplied by the
 		// foot height to get better behavior on angled surfaces.
 		CurLocationTarget = (ImpactPoint + ImpactNormal * Config.FootHeight) -
 			(IKFootFloorLoc + FVector(0, 0, Config.FootHeight));
@@ -532,7 +538,7 @@ void UALSCharacterAnimInstance::RotateInPlaceCheck()
 	// This makes the character rotate faster when moving the camera faster.
 	if (Grounded.bRotateL || Grounded.bRotateR)
 	{
-		Grounded.RotateRate = FMath::GetMappedRangeValueClamped(
+		Grounded.RotateRate = FMath::GetMappedRangeValueClamped<float, float>(
 			{RotateInPlace.AimYawRateMinRange, RotateInPlace.AimYawRateMaxRange},
 			{RotateInPlace.MinPlayRate, RotateInPlace.MaxPlayRate},
 			CharacterInformation.AimYawRate);
@@ -543,7 +549,7 @@ void UALSCharacterAnimInstance::TurnInPlaceCheck(float DeltaSeconds)
 {
 	// Step 1: Check if Aiming angle is outside of the Turn Check Min Angle, and if the Aim Yaw Rate is below the Aim Yaw Rate Limit.
 	// If so, begin counting the Elapsed Delay Time. If not, reset the Elapsed Delay Time.
-	// This ensures the conditions remain true for a sustained peroid of time before turning in place.
+	// This ensures the conditions remain true for a sustained period of time before turning in place.
 	if (FMath::Abs(AimingValues.AimingAngle.X) <= TurnInPlaceValues.TurnCheckMinAngle ||
 		CharacterInformation.AimYawRate >= TurnInPlaceValues.AimYawRateLimit)
 	{
@@ -552,7 +558,7 @@ void UALSCharacterAnimInstance::TurnInPlaceCheck(float DeltaSeconds)
 	}
 
 	TurnInPlaceValues.ElapsedDelayTime += DeltaSeconds;
-	const float ClampedAimAngle = FMath::GetMappedRangeValueClamped({TurnInPlaceValues.TurnCheckMinAngle, 180.0f},
+	const float ClampedAimAngle = FMath::GetMappedRangeValueClamped<float, float>({TurnInPlaceValues.TurnCheckMinAngle, 180.0f},
 	                                                                {
 		                                                                TurnInPlaceValues.MinAngleDelay,
 		                                                                TurnInPlaceValues.MaxAngleDelay
@@ -640,7 +646,7 @@ void UALSCharacterAnimInstance::UpdateRotationValues()
 	// Set the Movement Direction
 	MovementDirection = CalculateMovementDirection();
 
-	// Set the Yaw Offsets. These values influence the "YawOffset" curve in the animgraph and are used to offset
+	// Set the Yaw Offsets. These values influence the "YawOffset" curve in the AnimGraph and are used to offset
 	// the characters rotation for more natural movement. The curves allow for fine control over how the offset
 	// behaves for each movement direction.
 	FRotator Delta = CharacterInformation.Velocity.ToOrientationRotator() - CharacterInformation.AimingRotation;
@@ -672,7 +678,7 @@ void UALSCharacterAnimInstance::UpdateRagdollValues()
 {
 	// Scale the Flail Rate by the velocity length. The faster the ragdoll moves, the faster the character will flail.
 	const float VelocityLength = GetOwningComponent()->GetPhysicsLinearVelocity(NAME__ALSCharacterAnimInstance__root).Size();
-	FlailRate = FMath::GetMappedRangeValueClamped({0.0f, 1000.0f}, {0.0f, 1.0f}, VelocityLength);
+	FlailRate = FMath::GetMappedRangeValueClamped<float, float>({0.0f, 1000.0f}, {0.0f, 1.0f}, VelocityLength);
 }
 
 float UALSCharacterAnimInstance::GetAnimCurveClamped(const FName& Name, float Bias, float ClampMin,
@@ -758,7 +764,7 @@ float UALSCharacterAnimInstance::CalculateStandingPlayRate() const
 
 float UALSCharacterAnimInstance::CalculateDiagonalScaleAmount() const
 {
-	// Calculate the Diagnal Scale Amount. This value is used to scale the Foot IK Root bone to make the Foot IK bones
+	// Calculate the Diagonal Scale Amount. This value is used to scale the Foot IK Root bone to make the Foot IK bones
 	// cover more distance on the diagonal blends. Without scaling, the feet would not move far enough on the diagonal
 	// direction due to the linear translational blending of the IK bones. The curve is used to easily map the value.
 	return DiagonalScaleAmountCurve->GetFloatValue(FMath::Abs(VelocityBlend.F + VelocityBlend.B));
@@ -767,7 +773,7 @@ float UALSCharacterAnimInstance::CalculateDiagonalScaleAmount() const
 float UALSCharacterAnimInstance::CalculateCrouchingPlayRate() const
 {
 	// Calculate the Crouching Play Rate by dividing the Character's speed by the Animated Speed.
-	// This value needs to be separate from the standing play rate to improve the blend from crocuh to stand while in motion.
+	// This value needs to be separate from the standing play rate to improve the blend from crouch to stand while in motion.
 	return FMath::Clamp(
 		CharacterInformation.Speed / Config.AnimatedCrouchSpeed / Grounded.StrideBlend / GetOwningComponent()->
 		GetComponentScale().Z,
@@ -778,7 +784,7 @@ float UALSCharacterAnimInstance::CalculateLandPrediction() const
 {
 	// Calculate the land prediction weight by tracing in the velocity direction to find a walkable surface the character
 	// is falling toward, and getting the 'Time' (range of 0-1, 1 being maximum, 0 being about to land) till impact.
-	// The Land Prediction Curve is used to control how the time affects the final weight for a smooth blend. 
+	// The Land Prediction Curve is used to control how the time affects the final weight for a smooth blend.
 	if (InAir.FallSpeed >= -200.0f)
 	{
 		return 0.0f;
@@ -791,7 +797,7 @@ float UALSCharacterAnimInstance::CalculateLandPrediction() const
 	VelocityClamped.Z = FMath::Clamp(VelocityZ, -4000.0f, -200.0f);
 	VelocityClamped.Normalize();
 
-	const FVector TraceLength = VelocityClamped * FMath::GetMappedRangeValueClamped(
+	const FVector TraceLength = VelocityClamped * FMath::GetMappedRangeValueClamped<float, float>(
 		{0.0f, -4000.0f}, {50.0f, 2000.0f}, VelocityZ);
 
 	UWorld* World = GetWorld();
@@ -803,7 +809,6 @@ float UALSCharacterAnimInstance::CalculateLandPrediction() const
 	FHitResult HitResult;
 	const FCollisionShape CapsuleCollisionShape = FCollisionShape::MakeCapsule(CapsuleComp->GetUnscaledCapsuleRadius(),
 	                                                                           CapsuleComp->GetUnscaledCapsuleHalfHeight());
-	const float HalfHeight = 0.0f;
 	const bool bHit = World->SweepSingleByChannel(HitResult, CapsuleWorldLoc, CapsuleWorldLoc + TraceLength, FQuat::Identity,
 	                                              ECC_Visibility, CapsuleCollisionShape, Params);
 
@@ -848,7 +853,7 @@ FALSLeanAmount UALSCharacterAnimInstance::CalculateAirLeanAmount() const
 EALSMovementDirection UALSCharacterAnimInstance::CalculateMovementDirection() const
 {
 	// Calculate the Movement Direction. This value represents the direction the character is moving relative to the camera
-	// during the Looking Cirection / Aiming rotation modes, and is used in the Cycle Blending Anim Layers to blend to the
+	// during the Looking Direction / Aiming rotation modes, and is used in the Cycle Blending Anim Layers to blend to the
 	// appropriate directional states.
 	if (Gait.Sprinting() || RotationMode.VelocityDirection())
 	{
@@ -868,9 +873,8 @@ void UALSCharacterAnimInstance::TurnInPlace(FRotator TargetRotation, float PlayR
 	Delta.Normalize();
 	const float TurnAngle = Delta.Yaw;
 
-	FALSTurnInPlaceAsset TargetTurnAsset;
 	// Step 2: Choose Turn Asset based on the Turn Angle and Stance
-
+	FALSTurnInPlaceAsset TargetTurnAsset;
 	if (Stance.Standing())
 	{
 		if (FMath::Abs(TurnAngle) < TurnInPlaceValues.Turn180Threshold)
@@ -910,7 +914,7 @@ void UALSCharacterAnimInstance::TurnInPlace(FRotator TargetRotation, float PlayR
 	PlaySlotAnimationAsDynamicMontage(TargetTurnAsset.Animation, TargetTurnAsset.SlotName, 0.2f, 0.2f,
 	                                  TargetTurnAsset.PlayRate * PlayRateScale, 1, 0.0f, StartTime);
 
-	// Step 4: Scale the rotation amount (gets scaled in animgraph) to compensate for turn angle (If Allowed) and play rate.
+	// Step 4: Scale the rotation amount (gets scaled in AnimGraph) to compensate for turn angle (If Allowed) and play rate.
 	if (TargetTurnAsset.ScaleTurnAngle)
 	{
 		Grounded.RotationScale = (TurnAngle / TargetTurnAsset.AnimatedAngle) * TargetTurnAsset.PlayRate * PlayRateScale;
@@ -924,19 +928,15 @@ void UALSCharacterAnimInstance::TurnInPlace(FRotator TargetRotation, float PlayR
 void UALSCharacterAnimInstance::OnJumped()
 {
 	InAir.bJumped = true;
-	InAir.JumpPlayRate = FMath::GetMappedRangeValueClamped({0.0f, 600.0f}, {1.2f, 1.5f}, CharacterInformation.Speed);
+	InAir.JumpPlayRate = FMath::GetMappedRangeValueClamped<float, float>({0.0f, 600.0f}, {1.2f, 1.5f}, CharacterInformation.Speed);
 
-	UWorld* World = GetWorld();
-	check(World);
-	World->GetTimerManager().SetTimer(OnJumpedTimer, this,
+	GetWorld()->GetTimerManager().SetTimer(OnJumpedTimer, this,
 	                                  &UALSCharacterAnimInstance::OnJumpedDelay, 0.1f, false);
 }
 
 void UALSCharacterAnimInstance::OnPivot()
 {
 	Grounded.bPivot = CharacterInformation.Speed < Config.TriggerPivotSpeedLimit;
-	UWorld* World = GetWorld();
-	check(World);
-	World->GetTimerManager().SetTimer(OnPivotTimer, this,
+	GetWorld()->GetTimerManager().SetTimer(OnPivotTimer, this,
 	                                  &UALSCharacterAnimInstance::OnPivotDelay, 0.1f, false);
 }

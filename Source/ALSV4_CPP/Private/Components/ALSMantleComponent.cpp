@@ -1,8 +1,5 @@
-﻿// Project:         Advanced Locomotion System V4 on C++
-// Copyright:       Copyright (C) 2021 Doğa Can Yanıkoğlu
-// License:         MIT License (http://www.opensource.org/licenses/mit-license.php)
-// Source Code:     https://github.com/dyanikoglu/ALSV4_CPP
-// Original Author: Doğa Can Yanıkoğlu
+﻿// Copyright:       Copyright (C) 2022 Doğa Can Yanıkoğlu
+// Source Code:     https://github.com/dyanikoglu/ALS-Community
 
 
 #include "Components/ALSMantleComponent.h"
@@ -101,13 +98,13 @@ void UALSMantleComponent::MantleStart(float MantleHeight, const FALSComponentAnd
 	MantleParams.AnimMontage = MantleAsset.AnimMontage;
 	MantleParams.PositionCorrectionCurve = MantleAsset.PositionCorrectionCurve;
 	MantleParams.StartingOffset = MantleAsset.StartingOffset;
-	MantleParams.StartingPosition = FMath::GetMappedRangeValueClamped({MantleAsset.LowHeight, MantleAsset.HighHeight},
+	MantleParams.StartingPosition = FMath::GetMappedRangeValueClamped<float, float>({MantleAsset.LowHeight, MantleAsset.HighHeight},
 	                                                                  {
 		                                                                  MantleAsset.LowStartPosition,
 		                                                                  MantleAsset.HighStartPosition
 	                                                                  },
 	                                                                  MantleHeight);
-	MantleParams.PlayRate = FMath::GetMappedRangeValueClamped({MantleAsset.LowHeight, MantleAsset.HighHeight},
+	MantleParams.PlayRate = FMath::GetMappedRangeValueClamped<float, float>({MantleAsset.LowHeight, MantleAsset.HighHeight},
 	                                                          {MantleAsset.LowPlayRate, MantleAsset.HighPlayRate},
 	                                                          MantleHeight);
 
@@ -118,7 +115,7 @@ void UALSMantleComponent::MantleStart(float MantleHeight, const FALSComponentAnd
 	// Step 3: Set the Mantle Target and calculate the Starting Offset
 	// (offset amount between the actor and target transform).
 	MantleTarget = MantleLedgeWS.Transform;
-	MantleActualStartOffset = UALSMathLibrary::TransfromSub(OwnerCharacter->GetActorTransform(), MantleTarget);
+	MantleActualStartOffset = UALSMathLibrary::TransformSub(OwnerCharacter->GetActorTransform(), MantleTarget);
 
 	// Step 4: Calculate the Animated Start Offset from the Target Location.
 	// This would be the location the actual animation starts at relative to the Target Transform.
@@ -126,7 +123,7 @@ void UALSMantleComponent::MantleStart(float MantleHeight, const FALSComponentAnd
 	RotatedVector.Z = MantleParams.StartingOffset.Z;
 	const FTransform StartOffset(MantleTarget.Rotator(), MantleTarget.GetLocation() - RotatedVector,
 	                             FVector::OneVector);
-	MantleAnimatedStartOffset = UALSMathLibrary::TransfromSub(StartOffset, MantleTarget);
+	MantleAnimatedStartOffset = UALSMathLibrary::TransformSub(StartOffset, MantleTarget);
 
 	// Step 5: Clear the Character Movement Mode and set the Movement State to Mantling
 	OwnerCharacter->GetCharacterMovement()->SetMovementMode(MOVE_None);
@@ -142,10 +139,10 @@ void UALSMantleComponent::MantleStart(float MantleHeight, const FALSComponentAnd
 	MantleTimeline->SetPlayRate(MantleParams.PlayRate);
 	MantleTimeline->PlayFromStart();
 
-	// Step 7: Play the Anim Montaget if valid.
-	if (IsValid(MantleParams.AnimMontage))
+	// Step 7: Play the Anim Montage if valid.
+	if (MantleParams.AnimMontage && OwnerCharacter->GetMesh()->GetAnimInstance())
 	{
-		OwnerCharacter->GetMainAnimInstance()->Montage_Play(MantleParams.AnimMontage, MantleParams.PlayRate,
+		OwnerCharacter->GetMesh()->GetAnimInstance()->Montage_Play(MantleParams.AnimMontage, MantleParams.PlayRate,
 		                                                    EMontagePlayReturnType::MontageLength,
 		                                                    MantleParams.StartingPosition, false);
 	}
@@ -159,9 +156,7 @@ bool UALSMantleComponent::MantleCheck(const FALSMantleTraceSettings& TraceSettin
 	}
 
 	// Step 1: Trace forward to find a wall / object the character cannot walk on.
-	const FVector& TraceDirection = OwnerCharacter->HasMovementInput()
-		                                ? OwnerCharacter->GetPlayerMovementInput()
-		                                : OwnerCharacter->GetActorForwardVector();
+	const FVector& TraceDirection = OwnerCharacter->GetActorForwardVector();
 	const FVector& CapsuleBaseLocation = UALSMathLibrary::GetCapsuleBaseLocation(
 		2.0f, OwnerCharacter->GetCapsuleComponent());
 	FVector TraceStart = CapsuleBaseLocation + TraceDirection * -30.0f;
@@ -312,7 +307,7 @@ void UALSMantleComponent::Multicast_MantleStart_Implementation(float MantleHeigh
 	}
 }
 
-// This function is called by "MantleTimeline" using BindUFunction in the AALSBaseCharacter::BeginPlay during the default settings initalization.
+// This function is called by "MantleTimeline" using BindUFunction in UALSMantleComponent::BeginPlay during the default settings initialization.
 void UALSMantleComponent::MantleUpdate(float BlendIn)
 {
 	if (!OwnerCharacter)
@@ -366,13 +361,13 @@ void UALSMantleComponent::MantleUpdate(float BlendIn)
 	// Blend from the currently blending transforms into the final mantle target using the X
 	// value of the Position/Correction Curve.
 	const FTransform& ResultLerp = UKismetMathLibrary::TLerp(
-		UALSMathLibrary::TransfromAdd(MantleTarget, ResultTransform), MantleTarget,
+		UALSMathLibrary::TransformAdd(MantleTarget, ResultTransform), MantleTarget,
 		PositionAlpha);
 
 	// Initial Blend In (controlled in the timeline curve) to allow the actor to blend into the Position/Correction
-	// curve at the midoint. This prevents pops when mantling an object lower than the animated mantle.
+	// curve at the midpoint. This prevents pops when mantling an object lower than the animated mantle.
 	const FTransform& LerpedTarget =
-		UKismetMathLibrary::TLerp(UALSMathLibrary::TransfromAdd(MantleTarget, MantleActualStartOffset), ResultLerp,
+		UKismetMathLibrary::TLerp(UALSMathLibrary::TransformAdd(MantleTarget, MantleActualStartOffset), ResultLerp,
 		                          BlendIn);
 
 	// Step 4: Set the actors location and rotation to the Lerped Target.
